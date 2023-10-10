@@ -12,7 +12,9 @@ etagere = "0.2.8"
 cosmic-text = "0.9"
 lru = "0.12"
 # Our graphics API
-wgpu = "0.17"
+wgpu = "0.17.1"
+glyphon = {git="https://github.com/grovesNL/glyphon.git",rev="1de354c05da2414afdbd5ff0fe2b4104dcf7d414"}
+
 # Opening windows in a cross-platform way
 winit = "0.28"
 # Organized logging output, WGPU uses this for errors and info
@@ -23,7 +25,7 @@ pollster = "0.3.0"
 #yuh
 image = "0.24.7"
 bytemuck = { version = "1.14.0", features = ["derive"] }
-glyphon = "0.3.0"
+
 
 [profile.dev.package.backtrace]
 opt-level = 3
