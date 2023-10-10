@@ -2,66 +2,26 @@ use std::borrow::Cow;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::Window,
+    window::{Window, WindowBuilder},
 };
-mod input;
-mod game_state;
 
-use game_state::GameState;
+use glyphon::{
+    Attrs, Buffer, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea,
+    TextAtlas, TextBounds, TextRenderer,
+};
 
-pub const WINDOW_WIDTH: f32 = 1024.0;
-pub const WINDOW_HEIGHT: f32 = 768.0;
-
+use wgpu::{
+    CommandEncoderDescriptor, CompositeAlphaMode, DeviceDescriptor, Features, Instance,
+    InstanceDescriptor, Limits, LoadOp, MultisampleState, Operations, PresentMode,
+    RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, SurfaceConfiguration,
+    TextureFormat, TextureUsages, TextureViewDescriptor,
+};
 
 // In WGPU, we define an async function whose operation can be suspended and resumed.
 // This is because on web, we can't take over the main event loop and must leave it to
 // the browser.  On desktop, we'll just be running this function to completion.
 async fn run(event_loop: EventLoop<()>, window: Window) {
 
-    // sprite struct
-    #[repr(C)]
-    #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
-    struct GPUSprite {
-        to_region: [f32;4],
-        from_region: [f32;4],
-    }
-
-    // camera struct
-    #[repr(C)]
-    #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
-    struct GPUCamera {
-        screen_pos: [f32;2],
-        screen_size: [f32;2]
-    }
-
-    // camera stuff
-    let camera = GPUCamera {
-        screen_pos: [0.0, 0.0],
-        // Consider using config.width and config.height instead,
-        // it's up to you whether you want the window size to change what's visible in the game
-        // or scale it up and down
-        //              x       y
-        screen_size: [WINDOW_WIDTH, WINDOW_HEIGHT],
-    };
-
-    // VECTOR OF POS OF OUR SPRITES
-    // MATH CORDS = 0,0 == BOTTOM LEFT
-    // SCREEN CORDS = 0,0 == TOP LEFT
-    let mut sprites:Vec<GPUSprite> = vec![];
-    let mut i = 0;
-    while i < 4{
-        sprites.push(GPUSprite {
-            to_region: [384.0 + ((64*i) as f32), 512.0, 64.0, 64.0],
-            from_region: [0.25, 0.0, 0.25, 0.1],
-        });
-        i += 1;
-    }
-
-    
-    // triangle
-    use std::path::Path;
-    let img = image::open(Path::new("content/block-sprites.png")).expect("Should be a valid image at path content/block-sprites.png'");
-    let img = img.to_rgba8();
     let size = window.inner_size();
     let instance = wgpu::Instance::default();
     let surface = unsafe { instance.create_surface(&window) }.unwrap();
@@ -77,7 +37,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .await
         // And it can fail, so we panic with an error message if we can't get a GPU.
         .expect("Failed to find an appropriate adapter");
-
+    
     // Create the logical device and command queue.  A logical device is like a connection to a GPU, and
     // we'll be issuing instructions to the GPU over the command queue.
 
@@ -95,91 +55,67 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     .await
     .expect("Failed to create device");
 
-
-
-    let buffer_camera = device.create_buffer(&wgpu::BufferDescriptor{
-        label: None,
-        size: bytemuck::bytes_of(&camera).len() as u64,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false
-    });
-    let buffer_sprite = device.create_buffer(&wgpu::BufferDescriptor{
-        label: None,
-        size: (bytemuck::cast_slice::<_,u8>(&sprites).len()*10) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false
-    });
-
-
-
-        let (img_w, img_h) = img.dimensions();
-        // How big is the texture in GPU memory?
-        let size = wgpu::Extent3d {
-            width: img_w,
-            height: img_h,
-            depth_or_array_layers: 1,
-        };
-        // Let's make a texture now
-        let texture = device.create_texture(
-            // Parameters for the texture
-            &wgpu::TextureDescriptor {
-                // An optional label
-                label: Some("47 image"),
-                // Its dimensions. This line is equivalent to size:size
-                size,
-                // Number of mipmapping levels (to show different pictures at different distances)
-                mip_level_count: 1,
-                // Number of samples per pixel in the texture. It'll be one for our whole class.
-                sample_count: 1,
-                // Is it a 1D, 2D, or 3D texture?
-                dimension: wgpu::TextureDimension::D2,
-                // 8 bits per component, four components per pixel, unsigned, normalized in 0..255, SRGB
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                // This texture will be bound for shaders and have stuff copied to it
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                // What formats are allowed as views on this texture besides the native format
-                view_formats: &[],
-            }
-        );
-        // Now that we have a texture, we need to copy its data to the GPU:
-        queue.write_texture(
-            // A description of where to write the image data.
-            // We'll use this helper to say "the whole texture"
-            texture.as_image_copy(),
-            // The image data to write
-            &img,
-            // What portion of the image data to copy from the CPU
-            wgpu::ImageDataLayout {
-                // Where in img do the bytes to copy start?
-                offset: 0,
-                // How many bytes in each row of the image?
-                bytes_per_row: Some(4*img_w),
-                // We could pass None here and it would be alright,
-                // since we're only uploading one image
-                rows_per_image: Some(img_h),
+    // // The swapchain is how we obtain images from the surface we're drawing onto.
+    // // This is so we can draw onto one image while a different one is being presentedto the user on-screen.
+    // let swapchain_capabilities = surface.get_capabilities(&adapter);
+    // let swapchain_format = swapchain_capabilities.formats[0];
+    // let mut config = wgpu::SurfaceConfiguration {
+    //     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+    //     format: swapchain_format,
+    //     width: size.width,
+    //     height: size.height,
+    //     present_mode: wgpu::PresentMode::Fifo,
+    //     alpha_mode: swapchain_capabilities.alpha_modes[0],
+    //     view_formats: vec![],
+    // };
+    // surface.configure(&device, &config);
+        // Set up surface
+    let (width, height) = (800, 600);
+    let size = window.inner_size();
+    let scale_factor = window.scale_factor();
+    let instance = Instance::new(InstanceDescriptor::default());
+    let adapter = instance
+        .request_adapter(&RequestAdapterOptions::default())
+        .await
+        .unwrap();
+    let (device, queue) = adapter
+        .request_device(
+            &DeviceDescriptor {
+                label: None,
+                features: Features::empty(),
+                limits: Limits::downlevel_defaults(),
             },
-            // What portion of the texture we're writing into
-            size
-        );
-
-        // ADD DATA INTO THE BUFFERS!!!!
-        queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
-        queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
-
-    // The swapchain is how we obtain images from the surface we're drawing onto.
-    // This is so we can draw onto one image while a different one is being presentedto the user on-screen.
-    let swapchain_capabilities = surface.get_capabilities(&adapter);
-    let swapchain_format = swapchain_capabilities.formats[0];
-    let mut config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            None,
+        )
+        .await
+        .unwrap();
+    let surface = unsafe { instance.create_surface(&window) }.expect("Create surface");
+    let swapchain_format = TextureFormat::Bgra8UnormSrgb;
+    let mut config = SurfaceConfiguration {
+        usage: TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
         width: size.width,
         height: size.height,
-        present_mode: wgpu::PresentMode::Fifo,
-        alpha_mode: swapchain_capabilities.alpha_modes[0],
+        present_mode: PresentMode::Fifo,
+        alpha_mode: CompositeAlphaMode::Opaque,
         view_formats: vec![],
     };
     surface.configure(&device, &config);
+
+    // Set up text renderer
+    let mut font_system = FontSystem::new();
+    let mut cache = SwashCache::new();
+    let mut atlas = TextAtlas::new(&device, &queue, swapchain_format);
+    let mut text_renderer =
+        TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
+    let mut buffer = Buffer::new(&mut font_system, Metrics::new(30.0, 42.0));
+
+    let physical_width = (width as f64 * scale_factor) as f32;
+    let physical_height = (height as f64 * scale_factor) as f32;
+
+    buffer.set_size(&mut font_system, physical_width, physical_height);
+    buffer.set_text(&mut font_system, "Hello world! 👋\nThis is rendered with 🦅 glyphon 🦁\nThe text below should be partially clipped.\na b c d e f g h i j k l m n o p q r s t u v w x y z", Attrs::new().family(Family::SansSerif), Shaping::Advanced);
+    buffer.shape_until_scroll(&mut font_system);
 
     // Load the shaders from disk.  Remember, shader programs are things we compile for
     // our GPU so that it can compute vertices and colorize fragments.
@@ -190,20 +126,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
     });
 
-
-
-
-
-    // uses helper function to load image
-    // let tex_47 = load_texture("content/king.png", Some("king image"), &device, &queue)
-    // .expect("Couldn't load sprite img");
-    let (tex_sprite, mut img_bkgd) = load_texture("content/block-sprites.png", Some("sprite image"), &device, &queue).expect("Couldn't load sprite img");
-    let view_sprite = tex_sprite.create_view(&wgpu::TextureViewDescriptor::default());
-    let sampler_sprite = device.create_sampler(&wgpu::SamplerDescriptor::default());
-
-
-
-//////////////////////////////////
 
 let texture_bind_group_layout =
 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -282,38 +204,6 @@ let sprite_bind_group_layout =
         ],
     });
 
-    // BIND GROUP!!
-    let sprite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &sprite_bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: buffer_camera.as_entire_binding()
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: buffer_sprite.as_entire_binding()
-            }
-        ],
-    });
-
-    let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &texture_bind_group_layout,
-        entries: &[
-            // One for the texture, one for the sampler
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view_sprite),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&sampler_sprite),
-            },
-        ],
-    });
-
 
 
 
@@ -345,196 +235,148 @@ let sprite_bind_group_layout =
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
     });
-    // Definitions to control  input
-    // Create a new instance of the input mod to use for the event loop
-    let mut input = input::Input::default();
-
-    // state of game at any time
-    let mut gs = game_state::init_game_state();
-
 
     // renders everything in the window every frame --> if we update sprite pos here, they will update
     event_loop.run(move |event, _, control_flow| {
-        
+        let _ = (&instance, &adapter);
+
         // By default, tell the windowing system that there's no more work to do
         // from the application's perspective.
         *control_flow = ControlFlow::Poll;
         // Depending on the event, we'll need to do different things.
         // There is some pretty fancy pattern matching going on here,
         // so think back to CSCI054.
-
         match event {
-            // WindowEvent->KeyboardInput: Keyboard input!
-        Event::WindowEvent {
-            // Note this deeply nested pattern match
-            // WindowEvent->KeyboardInput: Keyboard input!
-
-            // Note this deeply nested pattern match
-            event: WindowEvent::KeyboardInput { input: key_ev, .. },
-            ..
-        } => {
-            input.handle_key_event(key_ev);
-        },
-        Event::WindowEvent {
-            event: WindowEvent::MouseInput { state, button, .. },
-            ..
-        } => {
-            input.handle_mouse_button(state, button);
-        },
-        Event::WindowEvent {
-            event: WindowEvent::CursorMoved { position, .. },
-            ..
-        } => {
-            input.handle_mouse_move(position);
-        },
-
-        Event::WindowEvent {
-            event: WindowEvent::Resized(size),
-            ..
-        } => {
-            // Reconfigure the surface with the new size
-            config.width = size.width;
-            config.height = size.height;
-            surface.configure(&device, &config);
-            // On macos the window needs to be redrawn manually after resizing
-            window.request_redraw();
-        },
+            Event::WindowEvent {
+                // For example, "if it's a window event and the specific window event is that
+                // we have resized the window to a particular new size called `size`..."
+                event: WindowEvent::Resized(size),
+                // Ignoring the rest of the fields of Event::WindowEvent...
+                ..
+            } => {
+                // Reconfigure the surface with the new size
+                config.width = size.width;
+                config.height = size.height;
+                surface.configure(&device, &config);
+                // On MacOS the window needs to be redrawn manually after resizing
+                window.request_redraw();
+            }
 
 
-        Event::MainEventsCleared => {
-            // sprite control redrawing
-            // Move one sprite to the right animation: sprites[0].to_region[0] += 1.0;
-            queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
-            queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
 
-            // Do we need to create sprite
-            if gs.waiting == false && gs.falling == false{
-                if gs.num_stacked > 7 {
-                    gs = game_state::init_game_state();
-                    sprites = vec![];
-                    //window.request_redraw();
-                }
-                let mut i = 0;
-                while i < 4{
-                    sprites.push(GPUSprite {
-                        // Screen cords: X     Y      W    H
-                            to_region: [384.0+((i*64) as f32), 512.0, 64.0, 64.0],
-                        // Sprite Sheet: PERCENTAGES        0.5
-                            from_region: [0.25, 0.1*gs.num_stacked as f32, 0.25, 0.1],
+
+            // DRAWING CALLS / UPDATE BUFFERS
+            Event::RedrawRequested(_) => {
+
+                // If the window system is telling us to redraw, let's get our next swapchain image
+                let frame = surface
+                    .get_current_texture()
+                    .expect("Failed to acquire next swap chain texture");
+                // And set up a texture view onto it, since the GPU needs a way to interpret those
+                // image bytes for writing.
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                // From the queue we obtain a command encoder that lets us issue GPU commands
+                let mut encoder =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                {
+                    // Now we begin a render pass.  The descriptor tells WGPU that
+                    // we want to draw onto our swapchain texture view (that's where the colors will go)
+                    // and that there's no depth buffer or stencil buffer.
+
+
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
                     });
-                    i += 1;
+                    rpass.set_pipeline(&render_pipeline);
+                    // draw two triangles per sprite, and sprites-many sprites.
+                    // this uses instanced drawing, but it would also be okay
+                    // to draw 6 * sprites.len() vertices and use modular arithmetic
+                    // to figure out which sprite we're drawing, instead of the instance index.
                 }
-                gs.waiting = true;
-            // Do we need to animate falling sprite
-            }else if gs.falling == true{
-                let mut still_falling = false;
-                for sprite in &mut sprites {
-                    let cur_y = sprite.to_region[1];
-                    // if it has not yet fallen below the level it will fall to, keep falling
-                    if cur_y >= 0.0 + gs.num_stacked as f32*64.0{
-                        still_falling = true;
-                        sprite.to_region = [sprite.to_region[0], cur_y - 2.0, 64.0, 64.0];
-                    }
-                }
-                if !still_falling{
-                    gs.falling = false;
-                    gs.num_stacked += 1;
-                }
-                // We are waiting for space to be clicked, and then acting on it
-            }else{
-                if input.is_key_down(winit::event::VirtualKeyCode::Space){
-                    
-                    let left_sprite = sprites[gs.num_stacked as usize].to_region[0];
-                    // check if sprite edge farther to the right/left than the previous one
-                    if left_sprite > gs.left_border{
-                        gs.left_border = left_sprite;
-                    }
-                    if (left_sprite + gs.drop_sprite_blocks as f32*64.0) < gs.right_border{
-                        gs.right_border = left_sprite + gs.drop_sprite_blocks as f32*8.0;
-                    }
-                    // EDIT HERE
-                    
-                    gs.waiting = false;
-                    gs.falling = true;
-                }else{
-                    //ANIMATE BACK AND FORTH
-                    // direction = true when going left
-                    // consider adding active field to sprites
-                    let mut delta = 4.0;
-                    if gs.direction == true{
-                        delta = -4.0;
-                    }
-                    for sprite in &mut sprites {
-                        if sprite.to_region[1] == 512.0{
-                            let cur_x = sprite.to_region[0];
-                            if cur_x >= 960.0 - delta{
-                                 gs.direction = true;
-                            }else if cur_x < 0.0 + delta{
-                                gs.direction = false
-                            }
-                            sprite.to_region = [cur_x + delta, 512.0, 64.0, 64.0];
-                        }                    
-                    }
-                }
-            }        
-            // Remember this from before?
-            //input.next_frame();
-        
+                // Once the commands have been scheduled, we send them over to the GPU via the queue.
+                queue.submit(Some(encoder.finish()));
+                // Then we wait for the commands to finish and tell the windowing system to
+                // present the swapchain image.
+                frame.present();
+                text_renderer
+                .prepare(
+                    &device,
+                    &queue,
+                    &mut font_system,
+                    &mut atlas,
+                    Resolution {
+                        width: config.width,
+                        height: config.height,
+                    },
+                    [TextArea {
+                        buffer: &buffer,
+                        left: 10.0,
+                        top: 10.0,
+                        scale: 1.0,
+                        bounds: TextBounds {
+                            left: 0,
+                            top: 0,
+                            right: 600,
+                            bottom: 160,
+                        },
+                        default_color: Color::rgb(255, 255, 255),
+                    }],
+                    &mut cache,
+                )
+                .unwrap();
 
-            let frame = surface
-                .get_current_texture()
-                .expect("Failed to acquire next swap chain texture");
-            let view = frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
+            let frame = surface.get_current_texture().unwrap();
+            let view = frame.texture.create_view(&TextureViewDescriptor::default());
             let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                device.create_command_encoder(&CommandEncoderDescriptor { label: None });
             {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                     label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        ops: Operations {
+                            load: LoadOp::Clear(wgpu::Color::BLACK),
                             store: true,
                         },
                     })],
                     depth_stencil_attachment: None,
-                    // timestamp_writes: None,
-                    // occlusion_query_set: None,
                 });
 
-                rpass.set_pipeline(&render_pipeline);
-                rpass.set_bind_group(0, &sprite_bind_group, &[]);
-                rpass.set_bind_group(1, &texture_bind_group, &[]);
-
-                // draw two triangles per sprite, and sprites-many sprites.
-                // this uses instanced drawing, but it would also be okay
-                // to draw 6 * sprites.len() vertices and use modular arithmetic
-                // to figure out which sprite we're drawing, instead of the instance index.
-                rpass.draw(0..6, 0..(sprites.len() as u32));
-            } 
-            
+                text_renderer.render(&atlas, &mut pass).unwrap();
+            }
 
             queue.submit(Some(encoder.finish()));
             frame.present();
-            
-            window.request_redraw();
-            input.next_frame();
 
+            atlas.trim();
+        
+                window.request_redraw();
 
-        },
-        Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } => *control_flow = ControlFlow::Exit,
-        _ => {}
-    }
-    window.request_redraw();
+            }
 
+            // If we're supposed to close the window, tell the event loop we're all done
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            // Ignore every other event for now.
+            _ => {}
+        }
+        // INSIDE GAME LOOP --> UPDATES IMAGE EVERY FRAME
+        window.request_redraw();
     });
-
     
 }
 
@@ -551,6 +393,7 @@ fn main() {
         env_logger::init();
         // On native, we just want to wait for `run` to finish.
         pollster::block_on(run(event_loop, window));
+
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -577,12 +420,9 @@ fn main() {
 
 // AsRef means we can take as parameters anything that cheaply converts into a Path,
 // for example an &str.
-fn load_texture(
-    path: impl AsRef<std::path::Path>,
-    label: Option<&str>,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-) -> Result<(wgpu::Texture, image::RgbaImage), image::ImageError> {
+fn load_texture(path:impl AsRef<std::path::Path>, label:Option<&str>,
+                device:&wgpu::Device, queue:&wgpu::Queue
+    ) -> Result<wgpu::Texture,image::ImageError> {
     // This ? operator will return the error if there is one, unwrapping the result otherwise.
     let img = image::open(path.as_ref())?.to_rgba8();
     let (width, height) = img.dimensions();
@@ -611,5 +451,5 @@ fn load_texture(
         },
         size,
     );
-    Ok((texture, img))
+    Ok(texture)
 }

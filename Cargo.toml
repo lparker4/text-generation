@@ -1,14 +1,16 @@
 [package]
-name = "triangle"
+name = "text-generation"
 version = "0.1.0"
 edition = "2021"
-description = "wgpu hello triangle example"
 publish = false
 
 [[bin]]
-name = "hello-triangle"
+name = "text-generation"
 path = "src/main.rs"
 [dependencies]
+etagere = "0.2.8"
+cosmic-text = "0.9"
+lru = "0.12"
 # Our graphics API
 wgpu = "0.17"
 # Opening windows in a cross-platform way
@@ -21,6 +23,7 @@ pollster = "0.3.0"
 #yuh
 image = "0.24.7"
 bytemuck = { version = "1.14.0", features = ["derive"] }
+glyphon = "0.3.0"
 
 [profile.dev.package.backtrace]
 opt-level = 3
@@ -32,4 +35,3 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.miniz_oxide]
 opt-level = 3
-imageproc = "0.23"
