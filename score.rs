@@ -422,7 +422,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
                 queue.submit(Some(encoder.finish()));
                 frame.present();
-                atlas.trim();
                 window.request_redraw();
             }
             Event::WindowEvent {
