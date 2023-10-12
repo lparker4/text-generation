@@ -4,9 +4,9 @@
 <h2>Hello World Text Tutorial</h2>
 <ol>
   <li>Add dependencies to the cargo.toml file</li>
-  <code>  # Our graphics API
-  wgpu = "0.17.1"
-  glyphon = {git="https://github.com/grovesNL/glyphon.git",rev="1de354c05da2414afdbd5ff0fe2b4104dcf7d414"}</code>
+        # Our graphics API
+        wgpu = "0.17.1"
+        glyphon = {git="https://github.com/grovesNL/glyphon.git",rev="1de354c05da2414afdbd5ff0fe2b4104dcf7d414"}</code>
 
   
 </ol>
