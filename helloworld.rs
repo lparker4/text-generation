@@ -345,8 +345,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 // TODO: move sprites, maybe scroll camera
                 // Then send the data to the GPU!
                 input.next_frame();
-                queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
-                queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
+                
                 text_renderer.prepare(
                     &device,
                     &queue,
@@ -405,6 +404,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     // to figure out which sprite we're drawing.
                     rpass.draw(0..6, 0..(sprites.len() as u32));
                 }
+                queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
+                queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
                 queue.submit(Some(encoder.finish()));
                 frame.present();
                 atlas.trim();

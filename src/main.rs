@@ -12,7 +12,6 @@ use glyphon::{
 use wgpu::{
     CompositeAlphaMode, MultisampleState, 
 };
-mod game_state;
 mod input;
 
 #[repr(C)]
@@ -36,8 +35,7 @@ const USE_STORAGE: bool = false;
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let size = window.inner_size();
-    let mut gs = game_state::init_game_state();
-    gs.typing = true;
+
     log::info!("Use storage? {:?}", USE_STORAGE);
 
     let instance = wgpu::Instance::default();
@@ -226,6 +224,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     surface.configure(&device, &config);
 
+
     // Set up text renderer
     let mut font_system = FontSystem::new();
     let mut cache = SwashCache::new();
@@ -237,11 +236,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let physical_width = (size.width as f64 * window.scale_factor()) as f32;
     let physical_height = (size.height as f64 * window.scale_factor()) as f32;
 
-    
-
-    // let mut displayed_text = "";
     buffer.set_size(&mut font_system, physical_width, physical_height);
-    buffer.set_text(&mut font_system, &gs.score.to_string(), Attrs::new().family(Family::SansSerif), Shaping::Advanced);
+    buffer.set_text(&mut font_system, "Hello world! 👋\nThis is rendered with 🦅 glyphon 🦁\nThe text below should be partially clipped.\na b c d e f g h i j k l m n o p q r s t u v w x y z", Attrs::new().family(Family::SansSerif), Shaping::Advanced);
     buffer.shape_until_scroll(&mut font_system);
 
 
@@ -332,7 +328,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
     let mut input = input::Input::default();
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+        *control_flow = ControlFlow::Wait;
         match event {
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
@@ -348,19 +344,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             Event::MainEventsCleared => {
                 // TODO: move sprites, maybe scroll camera
                 // Then send the data to the GPU!
-                if input.is_key_down(winit::event::VirtualKeyCode::Space){
-                    if !gs.score_changing{
-                        gs.score += 1;
-                        buffer.set_text(&mut font_system, &gs.score.to_string(), Attrs::new().family(Family::SansSerif), Shaping::Advanced);    
-                        gs.score_changing = true;
-                    }
-                }else{
-                    gs.score_changing = false;
-                }
-
                 input.next_frame();
-                queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
-                queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
                 text_renderer.prepare(
                     &device,
                     &queue,
@@ -419,6 +403,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     // to figure out which sprite we're drawing.
                     rpass.draw(0..6, 0..(sprites.len() as u32));
                 }
+                queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
+                queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
                 queue.submit(Some(encoder.finish()));
                 frame.present();
                 atlas.trim();

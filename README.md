@@ -46,7 +46,7 @@
             buffer.set_size(&mut font_system, physical_width, physical_height);
             buffer.set_text(&mut font_system, "Hello world! 👋\nThis is rendered with 🦅 glyphon 🦁\nThe text below should be partially clipped.\na b c d e f g h i j k l m n o p q r s t u v w x y z", Attrs::new().family(Family::SansSerif), Shaping::Advanced);
             buffer.shape_until_scroll(&mut font_system);
-  <li>Add Text rendering prepare function to Event::MainEventsCleared beneath queue.write_buffer calls</li>
+  <li>Add Text rendering prepare function to Event::MainEventsCleared above queue.write_buffer calls</li>
   <!-- -->
 
         text_renderer.prepare(
