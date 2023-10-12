@@ -225,6 +225,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     };
 
     surface.configure(&device, &config);
+    let mut original_text = "Hello world! 👋\nThis is rendered with 🦅 glyphon 🦁\nThe text below should be partially clipped.\na b c d e f g h i j k l m n o p q r s t u v w x y z";
+    let num_chars = original_text.len() as u32;
+    let mut displayed_text:String = String::from("");
 
     // Set up text renderer
     let mut font_system = FontSystem::new();
@@ -237,11 +240,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let physical_width = (size.width as f64 * window.scale_factor()) as f32;
     let physical_height = (size.height as f64 * window.scale_factor()) as f32;
 
-    
 
     // let mut displayed_text = "";
     buffer.set_size(&mut font_system, physical_width, physical_height);
-    buffer.set_text(&mut font_system, &gs.score.to_string(), Attrs::new().family(Family::SansSerif), Shaping::Advanced);
+    buffer.set_text(&mut font_system, &displayed_text, Attrs::new().family(Family::SansSerif), Shaping::Advanced);
     buffer.shape_until_scroll(&mut font_system);
 
 
@@ -348,16 +350,20 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             Event::MainEventsCleared => {
                 // TODO: move sprites, maybe scroll camera
                 // Then send the data to the GPU!
-                if input.is_key_down(winit::event::VirtualKeyCode::Space){
-                    if !gs.score_changing{
-                        gs.score += 1;
-                        buffer.set_text(&mut font_system, &gs.score.to_string(), Attrs::new().family(Family::SansSerif), Shaping::Advanced);    
-                        gs.score_changing = true;
-                    }
-                }else{
-                    gs.score_changing = false;
-                }
 
+                if gs.typing{
+                    let chars_iter = original_text.chars();
+                    for char in chars_iter.skip(gs.chars_typed as usize){
+                        displayed_text += &char.to_string();
+                        break;
+                    }
+                    buffer.set_text(&mut font_system, &displayed_text, Attrs::new().family(Family::SansSerif), Shaping::Advanced);
+                    // ADD TYPING LOGIC
+                    gs.chars_typed += 1;
+                    if gs.chars_typed == num_chars{
+                        gs.typing = false;
+                    } 
+                }
                 input.next_frame();
                 queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
                 queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
