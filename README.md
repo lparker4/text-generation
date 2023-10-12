@@ -1,5 +1,6 @@
 <h1>Text Generation Demos in Rust using Glyphon</h1>
 <p>The purpose of this demonstration is to demonstrate how to add simple text features to an existing game project in rust. For our sample game project, we will be starting with the scene2d example from the course website (https://cs.pomona.edu/classes/cs181g/examples/) You may choose to follow along using the same example, or another game project of your own.</p>
+<p>If you would like to check your work, the files in this repository are working examples. Files in the main directory called helloworld.rs, typewriter.rs, and score.rs are finished versions for each of the tutorials, and can each be copy+pasted into the main rs file in the src directory to run that example code.</p>
 **The tutorials will build on each other, so don't attempt to do tutorial 3 without reading 1
 <h2>Hello World Text Tutorial</h2>
 
